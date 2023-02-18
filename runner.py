@@ -12,6 +12,7 @@ from typing import Any
 
 TEST_CMD = ["cargo", "run", "--release", "--bin", "tester"]
 FIDGET = cycle("⢄⢂⢁⡁⡈⡐⡠")
+PROGRESS_POLLING_INTERVAL_MS = 250
 
 
 @dataclass
@@ -105,7 +106,7 @@ if __name__ == "__main__":
                 flush=True,
                 file=sys.stderr,
             )
-            time.sleep(0.25)
+            time.sleep(PROGRESS_POLLING_INTERVAL_MS / 1000)
 
     if args.verbose:
         for t, (in_file, out_file) in zip(async_result.get(), in_out_files):
