@@ -107,12 +107,12 @@ if __name__ == "__main__":
             )
             time.sleep(0.25)
 
-    costs = [t.cost for t in async_result.get()]
     if args.verbose:
         for t, (in_file, out_file) in zip(async_result.get(), in_out_files):
             lg.info(f"`{in_file}` => `{out_file}`: {t}")
-    sum_cost = sum(costs)
 
+    costs = [t.cost for t in async_result.get()]
+    sum_cost = sum(costs)
     max_cost, (max_in, max_out) = max(zip(costs, in_out_files))
     min_cost, (min_in, min_out) = min(zip(costs, in_out_files))
     lg.info("----- TEST SUMMARY -----")
