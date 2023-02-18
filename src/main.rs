@@ -55,19 +55,15 @@ impl<'a> Map<'a> {
     fn is_broken(&self, position: &Position) -> bool {
         self.state[position.x as usize][position.y as usize]
     }
-    fn brake(&mut self, position: &Position, power: usize) -> Result<bool, ()> {
+    fn dig(&mut self, position: &Position, power: usize) -> bool {
         if self.is_broken(position) {
-            return Err(());
+            return true;
         }
-        let response = self.querier.query(position, power);
-        match response {
-            Response::Broken => {
-                self.state[position.x as usize][position.y as usize] = true;
-                Ok(true)
-            }
-            Response::NotBroken => Ok(false),
-            Response::Finish | Response::Invalid => std::process::exit(0),
+        let did_brake = self.querier.query(position, power);
+        if did_brake {
+            self.state[position.x as usize][position.y as usize] = true;
         }
+        did_brake
     }
 }
 
@@ -97,13 +93,18 @@ impl<'a> Querier<'a> {
     fn new(input_source: LineSource<StdinLock<'a>>) -> Self {
         Self { input_source }
     }
-    fn query(&mut self, position: &Position, power: usize) -> Response {
+    fn query(&mut self, position: &Position, power: usize) -> bool {
         println!("{} {} {}", position.x, position.y, power);
         input! {
             from &mut self.input_source,
             response: Response,
         }
-        response
+        match response {
+            Response::Broken => true,
+            Response::NotBroken => false,
+            Response::Finish => std::process::exit(0),
+            Response::Invalid => std::process::exit(1),
+        }
     }
 }
 
@@ -115,7 +116,7 @@ fn main() {
         _: usize,
         w: usize,
         k: usize,
-        c: usize,
+        _c: usize,
         water_sources: [Position; w],
         houses: [Position; k],
     }
@@ -128,17 +129,31 @@ fn main() {
             .iter()
             .min_by_key(|w| w.manhattan_distance(h))
             .unwrap();
-        map.brake(nearest_water_source, 5000);
+
+        loop {
+            if map.dig(nearest_water_source, 100) {
+                break;
+            }
+        }
+
         let diff = *nearest_water_source - *h;
         for dx in 0..diff.x.abs() {
             let i = h.x + dx * diff.x.signum();
             let j = h.y;
-            map.brake(&Position::new(i, j), 5000);
+            loop {
+                if map.dig(&Position::new(i, j), 100) {
+                    break;
+                }
+            }
         }
         for dy in 0..diff.y.abs() {
             let i = h.x + diff.x;
             let j = h.y + dy * diff.y.signum();
-            map.brake(&Position::new(i, j), 5000);
+            loop {
+                if map.dig(&Position::new(i, j), 100) {
+                    break;
+                }
+            }
         }
     }
 }
