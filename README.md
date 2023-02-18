@@ -11,7 +11,7 @@
 
 ## Runner script
 
-Parallel tests can be run with `runner.py`. The number of parallelism is limited to `cpu_count() - 4` so that other apps do not to affect the test results.
+You can run tests in parallel using `runner.py`. However, the number of parallel processes is limited to `cpu_count() - 4` to ensure that other applications do not affect the accuracy of the test results.
 
 ### Usage
 
