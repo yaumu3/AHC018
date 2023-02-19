@@ -1,17 +1,14 @@
 use proconio::{derive_readable, input, source::line::LineSource};
-use std::io::StdinLock;
-use std::ops::{Add, Sub};
-use std::str::FromStr;
 
 const N: usize = 200;
 
 #[derive_readable]
 #[derive(Debug, PartialEq, Clone, Copy)]
-struct Position {
-    x: i32,
-    y: i32,
+pub struct Position {
+    pub x: i32,
+    pub y: i32,
 }
-impl Add for Position {
+impl std::ops::Add for Position {
     type Output = Self;
 
     fn add(self, other: Position) -> Self {
@@ -21,10 +18,10 @@ impl Add for Position {
         }
     }
 }
-impl Sub for Position {
-    type Output = Position;
+impl std::ops::Sub for Position {
+    type Output = Self;
 
-    fn sub(self, other: Position) -> Position {
+    fn sub(self, other: Position) -> Self {
         Position {
             x: self.x - other.x,
             y: self.y - other.y,
@@ -41,70 +38,52 @@ impl Position {
     }
 }
 
-struct Map<'a> {
-    querier: Querier<'a>,
-    state: [[bool; N]; N],
+#[derive(Debug, Clone)]
+struct Pixel {
+    is_broken: bool,
+    power_consumed: i32,
 }
-impl<'a> Map<'a> {
-    fn new(querier: Querier<'a>) -> Self {
+impl Pixel {
+    fn new() -> Self {
         Self {
-            querier,
-            state: [[false; N]; N],
+            is_broken: false,
+            power_consumed: 0,
         }
     }
-    fn is_broken(&self, position: &Position) -> bool {
-        self.state[position.x as usize][position.y as usize]
+}
+
+#[derive(Debug)]
+struct Map<'a> {
+    querier: querier::Querier<'a>,
+    state: Vec<Vec<Pixel>>,
+}
+impl<'a> Map<'a> {
+    fn new(querier: querier::Querier<'a>) -> Self {
+        Self {
+            querier,
+            state: vec![vec![Pixel::new(); N]; N],
+        }
     }
-    fn dig(&mut self, position: &Position, power: usize) -> bool {
+    fn ref_pixel(&self, position: &Position) -> &Pixel {
+        &self.state[position.x as usize][position.y as usize]
+    }
+    fn ref_mut_pixel(&mut self, position: &Position) -> &mut Pixel {
+        &mut self.state[position.x as usize][position.y as usize]
+    }
+    fn is_broken(&self, position: &Position) -> bool {
+        self.ref_pixel(position).is_broken
+    }
+    fn dig(&mut self, position: &Position, power: i32) -> bool {
         if self.is_broken(position) {
             return true;
         }
-        let did_brake = self.querier.query(position, power);
-        if did_brake {
-            self.state[position.x as usize][position.y as usize] = true;
+        let broke_after_dig = self.querier.query(position, power);
+        let mut target_pixel = self.ref_mut_pixel(position);
+        if broke_after_dig {
+            target_pixel.is_broken = true;
         }
-        did_brake
-    }
-}
-
-enum Response {
-    NotBroken = 0,
-    Broken = 1,
-    Finish = 2,
-    Invalid = -1,
-}
-impl FromStr for Response {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "0" => Ok(Response::NotBroken),
-            "1" => Ok(Response::Broken),
-            "2" => Ok(Response::Finish),
-            "-1" => Ok(Response::Invalid),
-            _ => Err("Unknown response"),
-        }
-    }
-}
-struct Querier<'a> {
-    input_source: LineSource<StdinLock<'a>>,
-}
-impl<'a> Querier<'a> {
-    fn new(input_source: LineSource<StdinLock<'a>>) -> Self {
-        Self { input_source }
-    }
-    fn query(&mut self, position: &Position, power: usize) -> bool {
-        println!("{} {} {}", position.x, position.y, power);
-        input! {
-            from &mut self.input_source,
-            response: Response,
-        }
-        match response {
-            Response::Broken => true,
-            Response::NotBroken => false,
-            Response::Finish => std::process::exit(0),
-            Response::Invalid => std::process::exit(1),
-        }
+        target_pixel.power_consumed += power;
+        broke_after_dig
     }
 }
 
@@ -121,7 +100,7 @@ fn main() {
         houses: [Position; k],
     }
 
-    let querier = Querier::new(source);
+    let querier = querier::Querier::new(source);
     let mut map = Map::new(querier);
 
     for h in &houses {
@@ -153,6 +132,59 @@ fn main() {
                 if map.dig(&Position::new(i, j), 100) {
                     break;
                 }
+            }
+        }
+    }
+}
+
+mod querier {
+    use super::{input, LineSource, Position};
+    use std::io::StdinLock;
+    use std::str::FromStr;
+
+    enum Response {
+        NotBroken = 0,
+        Broken = 1,
+        Finish = 2,
+        Invalid = -1,
+    }
+    impl FromStr for Response {
+        type Err = &'static str;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s {
+                "0" => Ok(Response::NotBroken),
+                "1" => Ok(Response::Broken),
+                "2" => Ok(Response::Finish),
+                "-1" => Ok(Response::Invalid),
+                _ => Err("Unknown response"),
+            }
+        }
+    }
+
+    pub struct Querier<'a> {
+        input_source: LineSource<StdinLock<'a>>,
+    }
+    impl<'a> std::fmt::Debug for Querier<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            writeln!(f, "Querier")
+        }
+    }
+    impl<'a> Querier<'a> {
+        pub fn new(input_source: LineSource<StdinLock<'a>>) -> Self {
+            Self { input_source }
+        }
+        pub fn query(&mut self, position: &Position, power: i32) -> bool {
+            println!("{} {} {}", position.x, position.y, power);
+            input! {
+                from &mut self.input_source,
+                response: Response,
+            }
+            match response {
+                Response::Broken => true,
+                Response::NotBroken => false,
+                Response::Finish => std::process::exit(0),
+                Response::Invalid => std::process::exit(1),
             }
         }
     }
