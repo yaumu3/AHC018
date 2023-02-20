@@ -1,6 +1,8 @@
 use proconio::{derive_readable, input, source::line::LineSource};
 
 const N: usize = 200;
+const MIN_Z: i32 = 10;
+const MAX_Z: i32 = 5000;
 
 #[derive_readable]
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -186,6 +188,107 @@ mod querier {
                 Response::Finish => std::process::exit(0),
                 Response::Invalid => std::process::exit(1),
             }
+        }
+    }
+}
+
+mod spatial_interpolater {
+    use super::{Position, MAX_Z, MIN_Z, N};
+    use nalgebra::{DMatrix, DVector};
+
+    pub struct SpatialInterpolator {
+        samples: DMatrix<f64>,
+        // A smoothing parameter that controls the spatial correlation of the kriging model
+        alpha: f64,
+        // The inverse of the kernel nxn matrix, used to compute the kriging weights
+        k_inv: DMatrix<f64>,
+        // Kriging weights
+        z_weights: DVector<f64>,
+    }
+    impl std::fmt::Debug for SpatialInterpolator {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let mut result = vec![];
+            for i in 0..N {
+                let mut row = vec![];
+                for j in 0..N {
+                    let p = Position::new(i as i32, j as i32);
+                    let z = self.predict(&p);
+                    row.push(z);
+                }
+                let row = row
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                result.push(row);
+            }
+            let result = result
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            writeln!(f, "{}", result)
+        }
+    }
+    impl SpatialInterpolator {
+        pub fn new(alpha: f64) -> Self {
+            SpatialInterpolator {
+                samples: DMatrix::zeros(0, 3),
+                alpha,
+                k_inv: DMatrix::zeros(0, 0),
+                z_weights: DVector::zeros(0),
+            }
+        }
+        pub fn train(&mut self, data: &[(&Position, i32)]) {
+            let n = data.len();
+            let mut samples = DMatrix::zeros(n, 3);
+
+            for (i, (p, z)) in data.iter().enumerate() {
+                samples[(i, 0)] = p.x as f64;
+                samples[(i, 1)] = p.y as f64;
+                samples[(i, 2)] = *z as f64;
+            }
+
+            let k = self.kernel_matrix(&samples);
+            self.k_inv = (self.alpha * DMatrix::identity(n, n) + k)
+                .try_inverse()
+                .unwrap();
+            self.z_weights = self.k_inv.clone() * samples.column(2);
+            self.samples = samples;
+        }
+        pub fn predict(&self, p: &Position) -> i32 {
+            let n = self.samples.nrows();
+            let mut k = DVector::zeros(n);
+            for i in 0..n {
+                let xi = self.samples[(i, 0)];
+                let yi = self.samples[(i, 1)];
+                k[i] = self.kernel(p.x as f64, p.y as f64, xi, yi);
+            }
+
+            let mut sum = 0.0;
+            for i in 0..n {
+                sum += k[i] * self.z_weights[i];
+            }
+            (sum as i32).max(MIN_Z).min(MAX_Z)
+        }
+        fn kernel_matrix(&self, samples: &DMatrix<f64>) -> DMatrix<f64> {
+            let n = samples.nrows();
+            let mut k = DMatrix::zeros(n, n);
+
+            for i in 0..n {
+                let xi = samples[(i, 0)];
+                let yi = samples[(i, 1)];
+                let x_diff = samples.slice((0, 0), (n, 1)).clone() - DMatrix::repeat(n, 1, xi);
+                let y_diff = samples.slice((0, 1), (n, 1)).clone() - DMatrix::repeat(n, 1, yi);
+                let dist = (x_diff.component_mul(&x_diff) + y_diff.component_mul(&y_diff))
+                    .map(|d| (-self.alpha * d).exp());
+                k.column_mut(i).copy_from(&dist);
+            }
+            k
+        }
+        fn kernel(&self, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+            let d2 = (x1 - x2).powi(2) + (y1 - y2).powi(2);
+            (-self.alpha * d2).exp()
         }
     }
 }
