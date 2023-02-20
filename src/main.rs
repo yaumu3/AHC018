@@ -188,6 +188,7 @@ mod querier {
 
 mod spatial_interpolater {
     use super::{Position, MAX_Z, MIN_Z, N};
+    use itertools::Itertools;
     use nalgebra::{DMatrix, DVector};
 
     pub struct SpatialInterpolator {
@@ -209,18 +210,10 @@ mod spatial_interpolater {
                     let z = self.predict(&p);
                     row.push(z);
                 }
-                let row = row
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
+                let row = row.iter().join(",");
                 result.push(row);
             }
-            let result = result
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let result = result.iter().join("\n");
             writeln!(f, "{}", result)
         }
     }
