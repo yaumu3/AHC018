@@ -263,7 +263,7 @@ mod spatial_interpolater {
             for i in 0..n {
                 sum += k[i] * self.z_weights[i];
             }
-            (sum as i32).max(MIN_Z).min(MAX_Z)
+            (sum as i32).clamp(MIN_Z, MAX_Z)
         }
         fn kernel_matrix(&self, samples: &DMatrix<f64>) -> DMatrix<f64> {
             let n = samples.nrows();
@@ -272,8 +272,8 @@ mod spatial_interpolater {
             for i in 0..n {
                 let xi = samples[(i, 0)];
                 let yi = samples[(i, 1)];
-                let x_diff = samples.slice((0, 0), (n, 1)).clone() - DMatrix::repeat(n, 1, xi);
-                let y_diff = samples.slice((0, 1), (n, 1)).clone() - DMatrix::repeat(n, 1, yi);
+                let x_diff = samples.slice((0, 0), (n, 1)) - DMatrix::repeat(n, 1, xi);
+                let y_diff = samples.slice((0, 1), (n, 1)) - DMatrix::repeat(n, 1, yi);
                 let dist = (x_diff.component_mul(&x_diff) + y_diff.component_mul(&y_diff))
                     .map(|d| (-self.alpha * d).exp());
                 k.column_mut(i).copy_from(&dist);
