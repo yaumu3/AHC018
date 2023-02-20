@@ -190,6 +190,7 @@ mod spatial_interpolater {
     use super::{Position, MAX_Z, MIN_Z, N};
     use itertools::Itertools;
     use nalgebra::{DMatrix, DVector};
+    use std::ops::Range;
 
     pub struct SpatialInterpolator {
         samples: DMatrix<f64>,
@@ -202,18 +203,8 @@ mod spatial_interpolater {
     }
     impl std::fmt::Debug for SpatialInterpolator {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let mut result = vec![];
-            for i in 0..N {
-                let mut row = vec![];
-                for j in 0..N {
-                    let p = Position::new(i as i32, j as i32);
-                    let z = self.predict(&p);
-                    row.push(z);
-                }
-                let row = row.iter().join(",");
-                result.push(row);
-            }
-            let result = result.iter().join("\n");
+            let prediction = self.predict_ranges(0..N as i32, 0..N as i32);
+            let result = prediction.iter().map(|row| row.iter().join(",")).join("\n");
             writeln!(f, "{}", result)
         }
     }
@@ -243,6 +234,7 @@ mod spatial_interpolater {
             self.z_weights = self.k_inv.clone() * samples.column(2);
             self.samples = samples;
         }
+        #[allow(clippy::manual_clamp)]
         pub fn predict(&self, p: &Position) -> i32 {
             let n = self.samples.nrows();
             let mut k = DVector::zeros(n);
@@ -256,7 +248,21 @@ mod spatial_interpolater {
             for i in 0..n {
                 sum += k[i] * self.z_weights[i];
             }
-            (sum as i32).clamp(MIN_Z, MAX_Z)
+
+            (sum as i32).max(MIN_Z).min(MAX_Z)
+        }
+        pub fn predict_ranges(&self, x_range: Range<i32>, y_range: Range<i32>) -> Vec<Vec<i32>> {
+            let mut result = vec![];
+            for i in x_range {
+                let mut row = vec![];
+                for j in y_range.clone() {
+                    let p = Position::new(i, j);
+                    let z = self.predict(&p);
+                    row.push(z);
+                }
+                result.push(row);
+            }
+            result
         }
         fn kernel_matrix(&self, samples: &DMatrix<f64>) -> DMatrix<f64> {
             let n = samples.nrows();
