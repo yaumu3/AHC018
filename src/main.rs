@@ -87,6 +87,13 @@ impl<'a> Map<'a> {
         target_pixel.power_consumed += power;
         broke_after_dig
     }
+    fn dig_until_break(&mut self, position: &Position, power: i32) {
+        loop {
+            if self.dig(position, power) {
+                return;
+            }
+        }
+    }
 }
 
 fn main() {
@@ -110,31 +117,18 @@ fn main() {
             .iter()
             .min_by_key(|w| w.manhattan_distance(h))
             .unwrap();
-
-        loop {
-            if map.dig(nearest_water_source, 100) {
-                break;
-            }
-        }
+        map.dig_until_break(nearest_water_source, 100);
 
         let diff = *nearest_water_source - *h;
         for dx in 0..diff.x.abs() {
             let i = h.x + dx * diff.x.signum();
             let j = h.y;
-            loop {
-                if map.dig(&Position::new(i, j), 100) {
-                    break;
-                }
-            }
+            map.dig_until_break(&Position::new(i, j), 100);
         }
         for dy in 0..diff.y.abs() {
             let i = h.x + diff.x;
             let j = h.y + dy * diff.y.signum();
-            loop {
-                if map.dig(&Position::new(i, j), 100) {
-                    break;
-                }
-            }
+            map.dig_until_break(&Position::new(i, j), 100);
         }
     }
 }
