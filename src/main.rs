@@ -42,10 +42,14 @@ fn main() {
         .iter()
         .map(|&p| (p, map.power_consumed(&p)))
         .collect();
+    interpolater.train(&surveryed_samples);
+    let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
 
-    for h in &houses {
-        interpolater.train(&surveryed_samples);
-        let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
+    while houses.iter().any(|h| !map.has_water(h)) {
+        if surveryed_samples.len() < 1024 {
+            interpolater.train(&surveryed_samples);
+            grid_costs = interpolater.predict_ranges(0..N, 0..N);
+        }
         for (i, row) in grid_costs.iter_mut().enumerate() {
             for (j, value) in row.iter_mut().enumerate() {
                 let position = position::Position::new(i, j);
@@ -55,11 +59,17 @@ fn main() {
             }
         }
 
-        let min_cost_path = path_finder::calc_min_cost_path(&grid_costs, h, &water_sources);
-        for p in min_cost_path {
+        let target_path = houses
+            .iter()
+            .filter(|h| !map.has_water(h))
+            .map(|h| path_finder::calc_min_cost_path(&grid_costs, h, &water_sources))
+            .min_by_key(|path| path.iter().map(|p| grid_costs[p.x][p.y]).sum::<i32>())
+            .unwrap();
+
+        for p in target_path {
             map.dig(&p, grid_costs[p.x][p.y]);
             map.dig_until_break(&p, 100);
-            if survey_positions.len() < 1500 && !survey_positions.contains(&p) {
+            if !survey_positions.contains(&p) {
                 survey_positions.insert(p);
                 surveryed_samples.push((p, map.power_consumed(&p)));
             }
