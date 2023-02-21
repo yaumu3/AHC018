@@ -49,7 +49,7 @@ fn main() {
     let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
 
     while houses.iter().any(|h| !map.has_water(h)) {
-        if surveryed_samples.len() < 1024 {
+        if surveryed_samples.len() < 768 {
             interpolater.train(&surveryed_samples);
             grid_costs = interpolater.predict_ranges(0..N, 0..N);
         }
