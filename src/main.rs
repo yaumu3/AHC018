@@ -49,8 +49,7 @@ fn main() {
         for (i, row) in grid_costs.iter_mut().enumerate() {
             for (j, value) in row.iter_mut().enumerate() {
                 let position = position::Position::new(i, j);
-                let has_water = map.has_water(&position);
-                if has_water {
+                if map.has_water(&position) || map.is_broken(&position) {
                     *value = 0;
                 }
             }
@@ -58,8 +57,9 @@ fn main() {
 
         let min_cost_path = path_finder::calc_min_cost_path(&grid_costs, h, &water_sources);
         for p in min_cost_path {
+            map.dig(&p, grid_costs[p.x][p.y]);
             map.dig_until_break(&p, 100);
-            if !survey_positions.contains(&p) {
+            if survey_positions.len() < 1500 && !survey_positions.contains(&p) {
                 survey_positions.insert(p);
                 surveryed_samples.push((p, map.power_consumed(&p)));
             }
