@@ -28,6 +28,9 @@ fn main() {
     houses.iter().for_each(|h| {
         survey_positions.insert(*h);
     });
+    water_sources.iter().for_each(|w| {
+        survey_positions.insert(*w);
+    });
     while survey_positions.len() < 75 {
         let i = rng.gen_range(0, N);
         let j = rng.gen_range(0, N);
