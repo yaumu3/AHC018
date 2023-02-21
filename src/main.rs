@@ -25,38 +25,44 @@ fn main() {
 
     let mut rng = Pcg64Mcg::new(42);
     let mut survey_positions = BTreeSet::new();
-    while survey_positions.len() < 512 {
+    houses.iter().for_each(|h| {
+        survey_positions.insert(*h);
+    });
+    while survey_positions.len() < 75 {
         let i = rng.gen_range(0, N);
         let j = rng.gen_range(0, N);
-        survey_positions.insert(position::Position::new(i as i32, j as i32));
+        survey_positions.insert(position::Position::new(i, j));
     }
     survey_positions
         .iter()
         .for_each(|p| map.dig_until_break(p, 100));
-    let surveryed_samples: Vec<_> = survey_positions
+
+    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(1e-3);
+    let mut surveryed_samples: Vec<_> = survey_positions
         .iter()
-        .map(|p| (p, map.power_consumed(p)))
+        .map(|&p| (p, map.power_consumed(&p)))
         .collect();
-    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(1e-2);
-    interpolater.train(&surveryed_samples);
 
     for h in &houses {
-        let nearest_water_source = water_sources
-            .iter()
-            .min_by_key(|w| w.manhattan_distance(h))
-            .unwrap();
-        map.dig_until_break(nearest_water_source, 100);
-
-        let diff = *nearest_water_source - *h;
-        for dx in 0..diff.x.abs() {
-            let i = h.x + dx * diff.x.signum();
-            let j = h.y;
-            map.dig_until_break(&position::Position::new(i, j), 100);
+        interpolater.train(&surveryed_samples);
+        let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
+        for (i, row) in grid_costs.iter_mut().enumerate() {
+            for (j, value) in row.iter_mut().enumerate() {
+                let position = position::Position::new(i, j);
+                if map.has_water(&position) || map.is_broken(&position) {
+                    *value = 0;
+                }
+            }
         }
-        for dy in 0..diff.y.abs() {
-            let i = h.x + diff.x;
-            let j = h.y + dy * diff.y.signum();
-            map.dig_until_break(&position::Position::new(i, j), 100);
+
+        let min_cost_path = path_finder::calc_min_cost_path(&grid_costs, h, &water_sources);
+        for p in min_cost_path {
+            map.dig(&p, grid_costs[p.x][p.y]);
+            map.dig_until_break(&p, 100);
+            if survey_positions.len() < 1500 && !survey_positions.contains(&p) {
+                survey_positions.insert(p);
+                surveryed_samples.push((p, map.power_consumed(&p)));
+            }
         }
     }
 }
@@ -66,64 +72,38 @@ mod position {
     #[derive_readable]
     #[derive(Debug, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
     pub struct Position {
-        pub x: i32,
-        pub y: i32,
-    }
-    impl std::ops::Add for Position {
-        type Output = Self;
-
-        fn add(self, other: Position) -> Self {
-            Position {
-                x: self.x + other.x,
-                y: self.y + other.y,
-            }
-        }
-    }
-    impl std::ops::Sub for Position {
-        type Output = Self;
-
-        fn sub(self, other: Position) -> Self {
-            Position {
-                x: self.x - other.x,
-                y: self.y - other.y,
-            }
-        }
+        pub x: usize,
+        pub y: usize,
     }
     impl Position {
-        pub fn new(x: i32, y: i32) -> Self {
+        pub fn new(x: usize, y: usize) -> Self {
             Self { x, y }
-        }
-        pub fn manhattan_distance(&self, other: &Position) -> i32 {
-            let diff = *self - *other;
-            diff.x.abs() + diff.y.abs()
         }
     }
 
     fn adjacent_grids(
-        i: usize,
-        j: usize,
+        position: Position,
         height: usize,
         width: usize,
         directions: &[(usize, usize)],
     ) -> impl Iterator<Item = Position> + '_ {
         assert!(height < !0 && width < !0);
         directions.iter().filter_map(move |&(di, dj)| {
-            let ni = i.wrapping_add(di);
-            let nj = j.wrapping_add(dj);
+            let ni = (position.x).wrapping_add(di);
+            let nj = (position.y).wrapping_add(dj);
             if ni < height && nj < width {
-                Some(Position::new(ni as i32, nj as i32))
+                Some(Position::new(ni, nj))
             } else {
                 None
             }
         })
     }
     pub fn adjacent_grids_4(
-        i: usize,
-        j: usize,
+        position: Position,
         height: usize,
         width: usize,
     ) -> impl Iterator<Item = Position> {
-        adjacent_grids(i, j, height, width, &[(0, 1), (1, 0), (0, !0), (!0, 0)])
+        adjacent_grids(position, height, width, &[(0, 1), (1, 0), (0, !0), (!0, 0)])
     }
 }
 
@@ -168,12 +148,12 @@ mod map {
             }
         }
         fn ref_pixel(&self, position: &Position) -> &Pixel {
-            &self.state[position.x as usize][position.y as usize]
+            &self.state[position.x][position.y]
         }
         fn ref_mut_pixel(&mut self, position: &Position) -> &mut Pixel {
-            &mut self.state[position.x as usize][position.y as usize]
+            &mut self.state[position.x][position.y]
         }
-        fn is_broken(&self, position: &Position) -> bool {
+        pub fn is_broken(&self, position: &Position) -> bool {
             self.ref_pixel(position).is_broken
         }
         pub fn power_consumed(&self, position: &Position) -> i32 {
@@ -189,13 +169,11 @@ mod map {
             target_pixel.power_consumed += power;
             if broke_after_dig {
                 target_pixel.is_broken = true;
-                adjacent_grids_4(position.x as usize, position.y as usize, N, N).for_each(
-                    |neighbor_p| {
-                        if self.ref_pixel(&neighbor_p).is_broken {
-                            self.water_dsu.merge_positions(&neighbor_p, position);
-                        }
-                    },
-                );
+                adjacent_grids_4(*position, N, N).for_each(|neighbor_p| {
+                    if self.ref_pixel(&neighbor_p).is_broken {
+                        self.water_dsu.merge_positions(&neighbor_p, position);
+                    }
+                });
             }
             broke_after_dig
         }
@@ -215,29 +193,79 @@ mod map {
                     .same_positions(&self.water_sources[i], position)
             })
         }
-        pub fn dump(&mut self) -> String {
-            let mut result = vec![];
-            for i in 0..N {
-                let mut row = vec![];
-                for j in 0..N {
-                    let position = Position::new(i as i32, j as i32);
-                    let is_broken = self.is_broken(&position);
-                    let has_water = self.has_water(&position);
-                    let c = match (is_broken, has_water) {
-                        (true, true) => '~',
-                        (true, false) => 'x',
-                        (false, false) => ' ',
-                        (false, true) => {
-                            panic!("Invalid state: the pixel is broken but has water.")
-                        }
-                    };
-                    row.push(c);
-                }
-                let row: String = row.into_iter().collect();
-                result.push(row);
+    }
+}
+
+mod path_finder {
+    use super::position::{adjacent_grids_4, Position};
+    use std::{
+        cmp::Reverse,
+        collections::{BTreeMap, BTreeSet, BinaryHeap},
+    };
+
+    const INF: i32 = 1 << 30;
+
+    pub fn calc_min_cost_path(
+        cost: &Vec<Vec<i32>>,
+        start: &Position,
+        destinations: &[Position],
+    ) -> Vec<Position> {
+        let (min_cost, parent) = dijkstra(cost, start);
+        let nearest_destination = destinations
+            .iter()
+            .min_by_key(|d| min_cost[d.x][d.y])
+            .unwrap();
+        reconstruct_path(&parent, start, nearest_destination)
+    }
+
+    fn dijkstra(
+        grid_costs: &Vec<Vec<i32>>,
+        start: &Position,
+    ) -> (Vec<Vec<i32>>, BTreeMap<Position, Position>) {
+        let height = grid_costs.len();
+        let width = grid_costs[0].len();
+        let mut result = vec![vec![INF; width]; height];
+        let mut parent = BTreeMap::new();
+        let mut heap = BinaryHeap::new();
+        let mut visited = BTreeSet::new();
+
+        result[start.x][start.y] = 0;
+        heap.push(Reverse((0, *start)));
+
+        while let Some(Reverse((cost, p))) = heap.pop() {
+            if visited.contains(&p) {
+                continue;
             }
-            result.join("\n")
+            visited.insert(p);
+
+            for np in adjacent_grids_4(p, height, width) {
+                let ni = np.x;
+                let nj = np.y;
+                let next_cost = cost + grid_costs[ni][nj];
+                if next_cost < result[ni][nj] {
+                    result[ni][nj] = next_cost;
+                    parent.insert(np, p);
+                    heap.push(Reverse((next_cost, np)));
+                }
+            }
         }
+        (result, parent)
+    }
+
+    fn reconstruct_path(
+        parent: &BTreeMap<Position, Position>,
+        start: &Position,
+        destination: &Position,
+    ) -> Vec<Position> {
+        let mut path = vec![];
+        let mut cur = *destination;
+        while &cur != start {
+            path.push(cur);
+            cur = *parent.get(&cur).unwrap();
+        }
+        path.push(*start);
+        path.reverse();
+        path
     }
 }
 
@@ -311,7 +339,7 @@ mod spatial_interpolater {
     }
     impl std::fmt::Debug for SpatialInterpolator {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let prediction = self.predict_ranges(0..N as i32, 0..N as i32);
+            let prediction = self.predict_ranges(0..N, 0..N);
             let result = prediction.iter().map(|row| row.iter().join(",")).join("\n");
             writeln!(f, "{}", result)
         }
@@ -325,7 +353,7 @@ mod spatial_interpolater {
                 z_weights: DVector::zeros(0),
             }
         }
-        pub fn train(&mut self, data: &[(&Position, i32)]) {
+        pub fn train(&mut self, data: &[(Position, i32)]) {
             let n = data.len();
             let mut samples = DMatrix::zeros(n, 3);
 
@@ -359,7 +387,11 @@ mod spatial_interpolater {
 
             (sum as i32).max(MIN_Z).min(MAX_Z)
         }
-        pub fn predict_ranges(&self, x_range: Range<i32>, y_range: Range<i32>) -> Vec<Vec<i32>> {
+        pub fn predict_ranges(
+            &self,
+            x_range: Range<usize>,
+            y_range: Range<usize>,
+        ) -> Vec<Vec<i32>> {
             let mut result = vec![];
             for i in x_range {
                 let mut row = vec![];
@@ -452,12 +484,12 @@ mod dsu {
             }
         }
         fn encode(&self, position: &Position) -> usize {
-            position.x as usize * self.height + position.y as usize
+            position.x * self.height + position.y
         }
         fn decode(&self, n: usize) -> Position {
             let x = n / self.height;
             let y = n % self.height;
-            Position::new(x as i32, y as i32)
+            Position::new(x, y)
         }
     }
 }
