@@ -28,7 +28,7 @@ fn main() {
     houses.iter().for_each(|h| {
         survey_positions.insert(*h);
     });
-    while survey_positions.len() < 100 {
+    while survey_positions.len() < 75 {
         let i = rng.gen_range(0, N);
         let j = rng.gen_range(0, N);
         survey_positions.insert(position::Position::new(i, j));
@@ -36,15 +36,16 @@ fn main() {
     survey_positions
         .iter()
         .for_each(|p| map.dig_until_break(p, 100));
-    let surveryed_samples: Vec<_> = survey_positions
+
+    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(1e-3);
+    let mut surveryed_samples: Vec<_> = survey_positions
         .iter()
-        .map(|p| (p, map.power_consumed(p)))
+        .map(|&p| (p, map.power_consumed(&p)))
         .collect();
-    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(5e-3);
-    interpolater.train(&surveryed_samples);
-    let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
 
     for h in &houses {
+        interpolater.train(&surveryed_samples);
+        let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
         for (i, row) in grid_costs.iter_mut().enumerate() {
             for (j, value) in row.iter_mut().enumerate() {
                 let position = position::Position::new(i, j);
@@ -54,10 +55,14 @@ fn main() {
                 }
             }
         }
+
         let min_cost_path = path_finder::calc_min_cost_path(&grid_costs, h, &water_sources);
         for p in min_cost_path {
-            map.dig(&p, grid_costs[p.x][p.y]);
             map.dig_until_break(&p, 100);
+            if !survey_positions.contains(&p) {
+                survey_positions.insert(p);
+                surveryed_samples.push((p, map.power_consumed(&p)));
+            }
         }
     }
 }
@@ -348,7 +353,7 @@ mod spatial_interpolater {
                 z_weights: DVector::zeros(0),
             }
         }
-        pub fn train(&mut self, data: &[(&Position, i32)]) {
+        pub fn train(&mut self, data: &[(Position, i32)]) {
             let n = data.len();
             let mut samples = DMatrix::zeros(n, 3);
 
