@@ -48,34 +48,40 @@ fn main() {
     interpolater.train(&surveryed_samples);
     let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
 
-    while houses.iter().any(|h| !map.has_water(h)) {
-        if surveryed_samples.len() < 768 {
+    let mut planner = planner::Planner::new();
+    loop {
+        if surveryed_samples.len() < 512 {
             interpolater.train(&surveryed_samples);
             grid_costs = interpolater.predict_ranges(0..N, 0..N);
-        }
-        for (i, row) in grid_costs.iter_mut().enumerate() {
-            for (j, value) in row.iter_mut().enumerate() {
-                let position = position::Position::new(i, j);
-                if map.has_water(&position) || map.is_broken(&position) {
-                    *value = 0;
+            for (i, row) in grid_costs.iter_mut().enumerate() {
+                for (j, value) in row.iter_mut().enumerate() {
+                    let position = position::Position::new(i, j);
+                    if map.is_broken(&position) {
+                        *value = 0;
+                    }
                 }
             }
         }
 
-        let target_path = houses
+        let remaining_houses: Vec<_> = houses
             .iter()
             .filter(|h| !map.has_water(h))
-            .map(|h| path_finder::calc_min_cost_path(&grid_costs, h, &water_sources))
-            .min_by_key(|path| path.iter().map(|p| grid_costs[p.x][p.y]).sum::<i32>())
-            .unwrap();
-
-        for p in target_path {
+            .copied()
+            .collect();
+        let next_path =
+            planner.suggest_next_path(&mut grid_costs, remaining_houses, &water_sources);
+        for p in next_path {
+            let initial_estimate = grid_costs[p.x][p.y];
             map.dig(&p, grid_costs[p.x][p.y]);
             map.dig_until_break(&p, 100);
-            if !survey_positions.contains(&p) {
+            if !survey_positions.contains(&p)
+                && (map.power_consumed(&p) - initial_estimate).abs() > 2000
+                && rng.gen_bool(0.25)
+            {
                 survey_positions.insert(p);
                 surveryed_samples.push((p, map.power_consumed(&p)));
             }
+            grid_costs[p.x][p.y] = 0;
         }
     }
 }
@@ -209,6 +215,59 @@ mod map {
     }
 }
 
+mod planner {
+    use super::{path_finder::calc_min_cost_path, position::Position};
+    use rand::prelude::SliceRandom;
+    use rand_pcg::{Mcg128Xsl64, Pcg64Mcg};
+
+    const INF: i32 = 1 << 30;
+
+    pub struct Planner {
+        rng: Mcg128Xsl64,
+    }
+    impl Planner {
+        pub fn new() -> Self {
+            let rng = Pcg64Mcg::new(42);
+            Self { rng }
+        }
+        pub fn suggest_next_path(
+            &mut self,
+            grid_costs: &mut [Vec<i32>],
+            mut starts: Vec<Position>,
+            destinations: &[Position],
+        ) -> Vec<Position> {
+            let mut best_total_cost = INF;
+            let mut best_path = vec![];
+            for _ in 0..6.min((1..=starts.len()).product()) {
+                let mut history = vec![];
+                let mut total_cost = 0;
+                starts.shuffle(&mut self.rng);
+                let mut first_path = vec![];
+                for (i, s) in starts.iter().enumerate() {
+                    let path = calc_min_cost_path(grid_costs, s, destinations);
+                    for p in &path {
+                        history.push((*p, grid_costs[p.x][p.y]));
+                        total_cost += grid_costs[p.x][p.y];
+                        grid_costs[p.x][p.y] = 0;
+                    }
+                    if i == 0 {
+                        first_path = path;
+                    }
+                }
+                if total_cost < best_total_cost {
+                    best_total_cost = total_cost;
+                    best_path = first_path;
+                }
+                // revert grid_costs for the next shuffle
+                while let Some((p, original_cost)) = history.pop() {
+                    grid_costs[p.x][p.y] = original_cost;
+                }
+            }
+            best_path
+        }
+    }
+}
+
 mod path_finder {
     use super::position::{adjacent_grids_4, Position};
     use std::{
@@ -219,7 +278,7 @@ mod path_finder {
     const INF: i32 = 1 << 30;
 
     pub fn calc_min_cost_path(
-        cost: &Vec<Vec<i32>>,
+        cost: &[Vec<i32>],
         start: &Position,
         destinations: &[Position],
     ) -> Vec<Position> {
@@ -232,7 +291,7 @@ mod path_finder {
     }
 
     fn dijkstra(
-        grid_costs: &Vec<Vec<i32>>,
+        grid_costs: &[Vec<i32>],
         start: &Position,
     ) -> (Vec<Vec<i32>>, BTreeMap<Position, Position>) {
         let height = grid_costs.len();
