@@ -48,7 +48,7 @@ fn main() {
         })
     });
 
-    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(1e-3);
+    let mut interpolater = spatial_interpolater::SpatialInterpolator::new(2e-3);
     let mut surveryed_samples: Vec<_> = survey_positions
         .iter()
         .map(|&p| (p, map.power_consumed(&p)))
