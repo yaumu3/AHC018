@@ -31,10 +31,16 @@ fn main() {
     water_sources.iter().for_each(|w| {
         survey_positions.insert(*w);
     });
-    while survey_positions.len() < 75 {
-        let i = rng.gen_range(0, N);
-        let j = rng.gen_range(0, N);
-        survey_positions.insert(position::Position::new(i, j));
+
+    let survey_grid_count = 9;
+    let survey_grid_interval = N / survey_grid_count;
+    let survey_offset = survey_grid_interval / 2;
+    for i in 0..survey_grid_count {
+        for j in 0..survey_grid_count {
+            let x = i * survey_grid_interval + survey_offset;
+            let y = j * survey_grid_interval + survey_offset;
+            survey_positions.insert(position::Position::new(x, y));
+        }
     }
     survey_positions
         .iter()
