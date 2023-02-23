@@ -48,9 +48,9 @@ fn main() {
     interpolater.train(&surveryed_samples);
     let mut grid_costs = interpolater.predict_ranges(0..N, 0..N);
 
-    let mut planner = planner::Planner::new();
+    let mut planner = planner::Planner {};
     loop {
-        if surveryed_samples.len() < 512 {
+        if surveryed_samples.len() < 256 {
             interpolater.train(&surveryed_samples);
             grid_costs = interpolater.predict_ranges(0..N, 0..N);
             for (i, row) in grid_costs.iter_mut().enumerate() {
@@ -75,8 +75,10 @@ fn main() {
             map.dig(&p, grid_costs[p.x][p.y]);
             map.dig_until_break(&p, 100);
             if !survey_positions.contains(&p)
-                && (map.power_consumed(&p) - initial_estimate).abs() > 2000
-                && rng.gen_bool(0.25)
+                && rng.gen_bool(
+                    ((map.power_consumed(&p) - initial_estimate).abs() as f64 / 2000.0).min(1.0)
+                        * 0.5,
+                )
             {
                 survey_positions.insert(p);
                 surveryed_samples.push((p, map.power_consumed(&p)));
@@ -217,33 +219,33 @@ mod map {
 
 mod planner {
     use super::{path_finder::calc_min_cost_path, position::Position};
-    use rand::prelude::SliceRandom;
-    use rand_pcg::{Mcg128Xsl64, Pcg64Mcg};
+    use permutohedron::LexicalPermutation;
 
     const INF: i32 = 1 << 30;
 
-    pub struct Planner {
-        rng: Mcg128Xsl64,
-    }
+    pub struct Planner {}
     impl Planner {
-        pub fn new() -> Self {
-            let rng = Pcg64Mcg::new(42);
-            Self { rng }
-        }
         pub fn suggest_next_path(
             &mut self,
             grid_costs: &mut [Vec<i32>],
             mut starts: Vec<Position>,
             destinations: &[Position],
         ) -> Vec<Position> {
+            if starts.len() > 3 {
+                return starts
+                    .iter()
+                    .map(|s| calc_min_cost_path(grid_costs, s, destinations))
+                    .min_by_key(|path| path.iter().map(|p| grid_costs[p.x][p.y]).sum::<i32>())
+                    .unwrap();
+            }
             let mut best_total_cost = INF;
             let mut best_path = vec![];
-            for _ in 0..6.min((1..=starts.len()).product()) {
+            starts.sort_unstable();
+            loop {
                 let mut history = vec![];
                 let mut total_cost = 0;
-                starts.shuffle(&mut self.rng);
                 let mut first_path = vec![];
-                for (i, s) in starts.iter().enumerate() {
+                for (i, s) in starts.iter().take(3).enumerate() {
                     let path = calc_min_cost_path(grid_costs, s, destinations);
                     for p in &path {
                         history.push((*p, grid_costs[p.x][p.y]));
@@ -261,6 +263,9 @@ mod planner {
                 // revert grid_costs for the next shuffle
                 while let Some((p, original_cost)) = history.pop() {
                     grid_costs[p.x][p.y] = original_cost;
+                }
+                if !starts.next_permutation() {
+                    break;
                 }
             }
             best_path
