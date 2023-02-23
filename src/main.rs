@@ -32,7 +32,7 @@ fn main() {
         survey_positions.insert(*w);
     });
 
-    let survey_grid_count = 9;
+    let survey_grid_count = 10;
     let survey_grid_interval = N / survey_grid_count;
     let survey_offset = survey_grid_interval / 2;
     for i in 0..survey_grid_count {
@@ -42,9 +42,11 @@ fn main() {
             survey_positions.insert(position::Position::new(x, y));
         }
     }
-    survey_positions
-        .iter()
-        .for_each(|p| map.dig_until_break(p, 100));
+    survey_positions.iter().for_each(|p| {
+        (0..20).for_each(|_| {
+            map.dig(p, 100);
+        })
+    });
 
     let mut interpolater = spatial_interpolater::SpatialInterpolator::new(1e-3);
     let mut surveryed_samples: Vec<_> = survey_positions
@@ -237,7 +239,7 @@ mod planner {
             mut starts: Vec<Position>,
             destinations: &[Position],
         ) -> Vec<Position> {
-            if starts.len() > 3 {
+            if starts.len() > 4 {
                 return starts
                     .iter()
                     .map(|s| calc_min_cost_path(grid_costs, s, destinations))
