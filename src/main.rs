@@ -291,11 +291,11 @@ mod path_finder {
     const INF: i32 = 1 << 30;
 
     pub fn calc_min_cost_path(
-        cost: &[Vec<i32>],
+        grid_costs: &[Vec<i32>],
         start: &Position,
         destinations: &[Position],
     ) -> Vec<Position> {
-        let (min_cost, parent) = dijkstra(cost, start);
+        let (min_cost, parent) = dijkstra(grid_costs, start, destinations);
         let nearest_destination = destinations
             .iter()
             .min_by_key(|d| min_cost[d.x][d.y])
@@ -306,6 +306,7 @@ mod path_finder {
     fn dijkstra(
         grid_costs: &[Vec<i32>],
         start: &Position,
+        destinations: &[Position],
     ) -> (Vec<Vec<i32>>, BTreeMap<Position, Position>) {
         let height = grid_costs.len();
         let width = grid_costs[0].len();
@@ -332,6 +333,9 @@ mod path_finder {
                     parent.insert(np, p);
                     heap.push(Reverse((next_cost, np)));
                 }
+            }
+            if destinations.iter().all(|d| visited.contains(d)) {
+                break;
             }
         }
         (result, parent)
