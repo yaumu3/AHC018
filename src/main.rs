@@ -97,6 +97,7 @@ fn main() {
 }
 
 mod position {
+    use super::N;
     use proconio::derive_readable;
     #[derive_readable]
     #[derive(Debug, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
@@ -107,6 +108,9 @@ mod position {
     impl Position {
         pub fn new(x: usize, y: usize) -> Self {
             Self { x, y }
+        }
+        pub fn iter_neighbors(&self) -> impl Iterator<Item = Position> {
+            adjacent_grids_4(*self, N, N)
         }
     }
 
@@ -127,7 +131,7 @@ mod position {
             }
         })
     }
-    pub fn adjacent_grids_4(
+    fn adjacent_grids_4(
         position: Position,
         height: usize,
         width: usize,
@@ -137,12 +141,7 @@ mod position {
 }
 
 mod map {
-    use super::{
-        dsu::DisjointSet,
-        position::{adjacent_grids_4, Position},
-        querier::Querier,
-        N,
-    };
+    use super::{dsu::DisjointSet, position::Position, querier::Querier, N};
 
     #[derive(Debug, Clone)]
     struct Pixel {
@@ -198,7 +197,7 @@ mod map {
             target_pixel.power_consumed += power;
             if broke_after_dig {
                 target_pixel.is_broken = true;
-                adjacent_grids_4(*position, N, N).for_each(|neighbor_p| {
+                position.iter_neighbors().for_each(|neighbor_p| {
                     if self.ref_pixel(&neighbor_p).is_broken {
                         self.water_dsu.merge_positions(&neighbor_p, position);
                     }
@@ -282,7 +281,7 @@ mod planner {
 }
 
 mod path_finder {
-    use super::position::{adjacent_grids_4, Position};
+    use super::position::Position;
     use std::{
         cmp::Reverse,
         collections::{BTreeMap, BTreeSet, BinaryHeap},
@@ -324,7 +323,7 @@ mod path_finder {
             }
             visited.insert(p);
 
-            for np in adjacent_grids_4(p, height, width) {
+            for np in p.iter_neighbors() {
                 let ni = np.x;
                 let nj = np.y;
                 let next_cost = cost + grid_costs[ni][nj];
